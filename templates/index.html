@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+    <div>
+        <h1 class="h3 mb-1">Job Applications</h1>
+        <p class="text-muted mb-0">Track every opportunity in one simple place.</p>
+    </div>
+    <a href="{{ url_for('add_job') }}" class="btn btn-primary">Add Application</a>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label for="search" class="form-label">Search company or role</label>
+                <input
+                    type="text"
+                    class="form-control"
+                    id="search"
+                    name="search"
+                    value="{{ search }}"
+                    placeholder="Example: Google or Backend Developer"
+                >
+            </div>
+            <div class="col-md-3">
+                <label for="status" class="form-label">Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">All statuses</option>
+                    {% for status in statuses %}
+                        <option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>
+                            {{ status }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-dark flex-fill">Apply</button>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary flex-fill">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        {% if applications %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Company</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Location</th>
+                            <th>Job Link</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for application in applications %}
+                            <tr>
+                                <td>{{ application["company"] }}</td>
+                                <td>{{ application["role"] }}</td>
+                                <td>
+                                    <span class="badge status-badge status-{{ application['status']|lower }}">
+                                        {{ application["status"] }}
+                                    </span>
+                                </td>
+                                <td>{{ application["application_date"] }}</td>
+                                <td>{{ application["location"] or "-" }}</td>
+                                <td>
+                                    {% if application["job_link"] %}
+                                        <a href="{{ application['job_link'] }}" target="_blank" rel="noopener">View</a>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-inline-flex gap-2">
+                                        <a href="{{ url_for('edit_job', application_id=application['id']) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                                        <form
+                                            method="post"
+                                            action="{{ url_for('delete_job', application_id=application['id']) }}"
+                                            onsubmit="return confirm('Delete this application?');"
+                                        >
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center p-5">
+                <h2 class="h5 mb-2">No applications found</h2>
+                <p class="text-muted mb-0">Add your first job application or adjust the filters.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
