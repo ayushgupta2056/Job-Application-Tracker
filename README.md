@@ -1,8 +1,8 @@
 # Job Application Tracker
 
-A Flask web app to keep track of job applications in one place.
+A FastAPI web app to keep track of job applications in one place.
 
-I built this project to practice the main parts of a small backend web application: handling forms, storing data in SQLite, rendering pages with Jinja2, and testing the important flows with pytest.
+I built this project to practice the main parts of a small backend web application: handling form submissions, storing data in SQLite, rendering pages with Jinja2, and testing the important flows with pytest.
 
 ## Features
 
@@ -22,11 +22,11 @@ I built this project to practice the main parts of a small backend web applicati
 
 | Area | Technology |
 | --- | --- |
-| Backend | Python, Flask |
+| Backend | Python, FastAPI, Uvicorn |
 | Database | SQLite |
 | Templates | Jinja2 |
 | Frontend | HTML, CSS, Bootstrap 5 |
-| Testing | pytest |
+| Testing | pytest, FastAPI TestClient |
 
 ## Application Statuses
 
@@ -111,13 +111,13 @@ SQL queries use placeholders like `?` so user input is passed safely instead of 
 | `/` | GET | Shows the application list with search and filter options |
 | `/add` | GET | Shows the add application form |
 | `/add` | POST | Saves a new application |
-| `/edit/<application_id>` | GET | Shows the edit form for an existing application |
-| `/edit/<application_id>` | POST | Updates an existing application |
-| `/delete/<application_id>` | POST | Deletes an application |
+| `/edit/{application_id}` | GET | Shows the edit form for an existing application |
+| `/edit/{application_id}` | POST | Updates an existing application |
+| `/delete/{application_id}` | POST | Deletes an application |
 
 ## Validation
 
-The app validates form data in Flask before saving it to the database.
+The app validates form data in FastAPI before saving it to the database.
 
 It checks that:
 
@@ -142,7 +142,7 @@ pip install -r requirements.txt
 Run the app:
 
 ```powershell
-python app.py
+python -m uvicorn app:app --reload --port 5000
 ```
 
 Open this URL in the browser:
@@ -189,4 +189,4 @@ The tests cover:
 
 ## Resume Summary
 
-Built a Flask and SQLite job application tracker with CRUD operations, search, filtering, server-side validation, custom error pages, and pytest tests for the main application flows.
+Built a FastAPI and SQLite job application tracker with CRUD operations, search, filtering, server-side validation, custom error pages, Jinja2 templates, and pytest tests for the main application flows.

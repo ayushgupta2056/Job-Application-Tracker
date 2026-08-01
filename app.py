@@ -1,13 +1,19 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 
-app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev-secret-key"
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 DATABASE = Path(__file__).with_name("jobs.db")
 STATUSES = ["Applied", "Interview", "Rejected", "Selected"]
 
@@ -36,6 +42,18 @@ def init_db():
             )
             """
         )
+
+
+def default_form_data():
+    return {
+        "company": "",
+        "role": "",
+        "status": "Applied",
+        "application_date": "",
+        "location": "",
+        "job_link": "",
+        "notes": "",
+    }
 
 
 def validate_application_form(form):
@@ -83,15 +101,22 @@ def get_application_or_404(application_id):
         ).fetchone()
 
     if application is None:
-        abort(404)
+        raise HTTPException(status_code=404)
 
     return application
 
 
-@app.route("/")
-def index():
-    search = request.args.get("search", "").strip()
-    status = request.args.get("status", "").strip()
+def redirect_with_message(url, message, category="success"):
+    return RedirectResponse(
+        url=f"{url}?message={quote(message)}&category={category}",
+        status_code=303,
+    )
+
+
+@app.get("/", name="index")
+def index(request: Request, search: str = "", status: str = "", message: str = "", category: str = "success"):
+    search = search.strip()
+    status = status.strip()
 
     query = "SELECT * FROM applications"
     conditions = []
@@ -115,125 +140,143 @@ def index():
         with get_db_connection() as connection:
             applications = connection.execute(query, parameters).fetchall()
     except sqlite3.DatabaseError:
-        abort(500)
+        raise HTTPException(status_code=500)
 
-    return render_template(
+    messages = [(category, message)] if message else []
+
+    return templates.TemplateResponse(
+        request,
         "index.html",
-        applications=applications,
-        search=search,
-        selected_status=status,
-        statuses=STATUSES,
+        {
+            "applications": applications,
+            "search": search,
+            "selected_status": status,
+            "statuses": STATUSES,
+            "messages": messages,
+        },
     )
 
 
-@app.route("/add", methods=["GET", "POST"])
-def add_job():
-    form_data = {
-        "company": "",
-        "role": "",
-        "status": "Applied",
-        "application_date": "",
-        "location": "",
-        "job_link": "",
-        "notes": "",
-    }
+@app.get("/add", name="add_job")
+def add_job_form(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "add_job.html",
+        {
+            "form_data": default_form_data(),
+            "statuses": STATUSES,
+            "messages": [],
+        },
+    )
 
-    if request.method == "POST":
-        form_data, errors = validate_application_form(request.form)
 
-        if errors:
-            for error in errors:
-                flash(error, "danger")
-            return render_template("add_job.html", form_data=form_data, statuses=STATUSES)
+@app.post("/add", name="create_job")
+async def create_job(request: Request):
+    form_data, errors = validate_application_form(await request.form())
 
-        try:
-            with get_db_connection() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO applications (
-                        company, role, status, application_date, location, job_link, notes
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        form_data["company"],
-                        form_data["role"],
-                        form_data["status"],
-                        form_data["application_date"],
-                        form_data["location"],
-                        form_data["job_link"],
-                        form_data["notes"],
-                    ),
+    if errors:
+        return templates.TemplateResponse(
+            request,
+            "add_job.html",
+            {
+                "form_data": form_data,
+                "statuses": STATUSES,
+                "messages": [("danger", error) for error in errors],
+            },
+        )
+
+    try:
+        with get_db_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO applications (
+                    company, role, status, application_date, location, job_link, notes
                 )
-        except sqlite3.DatabaseError:
-            abort(500)
-
-        flash("Application added successfully.", "success")
-        return redirect(url_for("index"))
-
-    return render_template("add_job.html", form_data=form_data, statuses=STATUSES)
-
-
-@app.route("/edit/<int:application_id>", methods=["GET", "POST"])
-def edit_job(application_id):
-    application = get_application_or_404(application_id)
-    form_data = dict(application)
-
-    if request.method == "POST":
-        form_data, errors = validate_application_form(request.form)
-
-        if errors:
-            for error in errors:
-                flash(error, "danger")
-            return render_template(
-                "edit_job.html",
-                application_id=application_id,
-                form_data=form_data,
-                statuses=STATUSES,
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    form_data["company"],
+                    form_data["role"],
+                    form_data["status"],
+                    form_data["application_date"],
+                    form_data["location"],
+                    form_data["job_link"],
+                    form_data["notes"],
+                ),
             )
+    except sqlite3.DatabaseError:
+        raise HTTPException(status_code=500)
 
-        try:
-            with get_db_connection() as connection:
-                connection.execute(
-                    """
-                    UPDATE applications
-                    SET company = ?,
-                        role = ?,
-                        status = ?,
-                        application_date = ?,
-                        location = ?,
-                        job_link = ?,
-                        notes = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (
-                        form_data["company"],
-                        form_data["role"],
-                        form_data["status"],
-                        form_data["application_date"],
-                        form_data["location"],
-                        form_data["job_link"],
-                        form_data["notes"],
-                        application_id,
-                    ),
-                )
-        except sqlite3.DatabaseError:
-            abort(500)
+    return redirect_with_message("/", "Application added successfully.")
 
-        flash("Application updated successfully.", "success")
-        return redirect(url_for("index"))
 
-    return render_template(
+@app.get("/edit/{application_id}", name="edit_job")
+def edit_job_form(request: Request, application_id: int):
+    application = get_application_or_404(application_id)
+
+    return templates.TemplateResponse(
+        request,
         "edit_job.html",
-        application_id=application_id,
-        form_data=form_data,
-        statuses=STATUSES,
+        {
+            "application_id": application_id,
+            "form_data": dict(application),
+            "statuses": STATUSES,
+            "messages": [],
+        },
     )
 
 
-@app.route("/delete/<int:application_id>", methods=["POST"])
-def delete_job(application_id):
+@app.post("/edit/{application_id}", name="update_job")
+async def update_job(request: Request, application_id: int):
+    get_application_or_404(application_id)
+    form_data, errors = validate_application_form(await request.form())
+
+    if errors:
+        return templates.TemplateResponse(
+            request,
+            "edit_job.html",
+            {
+                "application_id": application_id,
+                "form_data": form_data,
+                "statuses": STATUSES,
+                "messages": [("danger", error) for error in errors],
+            },
+        )
+
+    try:
+        with get_db_connection() as connection:
+            connection.execute(
+                """
+                UPDATE applications
+                SET company = ?,
+                    role = ?,
+                    status = ?,
+                    application_date = ?,
+                    location = ?,
+                    job_link = ?,
+                    notes = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    form_data["company"],
+                    form_data["role"],
+                    form_data["status"],
+                    form_data["application_date"],
+                    form_data["location"],
+                    form_data["job_link"],
+                    form_data["notes"],
+                    application_id,
+                ),
+            )
+    except sqlite3.DatabaseError:
+        raise HTTPException(status_code=500)
+
+    return redirect_with_message("/", "Application updated successfully.")
+
+
+@app.post("/delete/{application_id}", name="delete_job")
+def delete_job(application_id: int):
     application = get_application_or_404(application_id)
 
     try:
@@ -243,24 +286,36 @@ def delete_job(application_id):
                 (application_id,),
             )
     except sqlite3.DatabaseError:
-        abort(500)
+        raise HTTPException(status_code=500)
 
-    flash(f"Application for {application['company']} deleted successfully.", "success")
-    return redirect(url_for("index"))
-
-
-@app.errorhandler(404)
-def page_not_found(error):
-    return render_template("404.html"), 404
+    return redirect_with_message(
+        "/",
+        f"Application for {application['company']} deleted successfully.",
+    )
 
 
-@app.errorhandler(500)
-def internal_server_error(error):
-    return render_template("500.html"), 500
+@app.exception_handler(404)
+def page_not_found(request: Request, exc):
+    return templates.TemplateResponse(
+        request,
+        "404.html",
+        {"messages": []},
+        status_code=404,
+    )
+
+
+@app.exception_handler(500)
+def internal_server_error(request: Request, exc):
+    return templates.TemplateResponse(
+        request,
+        "500.html",
+        {"messages": []},
+        status_code=500,
+    )
 
 
 init_db()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    uvicorn.run("app:app", host="127.0.0.1", port=5000, reload=True)

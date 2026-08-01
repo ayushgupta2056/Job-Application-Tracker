@@ -1,4 +1,5 @@
 import pytest
+from fastapi.testclient import TestClient
 
 import app as app_module
 
@@ -6,10 +7,9 @@ import app as app_module
 @pytest.fixture
 def client(tmp_path):
     app_module.DATABASE = tmp_path / "test_jobs.db"
-    app_module.app.config["TESTING"] = True
     app_module.init_db()
 
-    with app_module.app.test_client() as test_client:
+    with TestClient(app_module.app) as test_client:
         yield test_client
 
 
@@ -47,7 +47,7 @@ def test_homepage_loads(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert b"Job Applications" in response.data
+    assert b"Job Applications" in response.content
 
 
 def test_add_application(client):
@@ -66,7 +66,7 @@ def test_add_application(client):
     )
 
     assert response.status_code == 200
-    assert b"Application added successfully." in response.data
+    assert b"Application added successfully." in response.content
     assert count_applications() == 1
 
 
@@ -94,7 +94,7 @@ def test_edit_application(client):
         ).fetchone()
 
     assert response.status_code == 200
-    assert b"Application updated successfully." in response.data
+    assert b"Application updated successfully." in response.content
     assert application["company"] == "Acme Updated"
     assert application["role"] == "Python Developer"
     assert application["status"] == "Interview"
@@ -106,7 +106,7 @@ def test_delete_application(client):
     response = client.post(f"/delete/{application_id}", follow_redirects=True)
 
     assert response.status_code == 200
-    assert b"deleted successfully" in response.data
+    assert b"deleted successfully" in response.content
     assert count_applications() == 0
 
 
@@ -117,8 +117,8 @@ def test_search_company(client):
     response = client.get("/?search=Acme")
 
     assert response.status_code == 200
-    assert b"Acme Corp" in response.data
-    assert b"Bright Labs" not in response.data
+    assert b"Acme Corp" in response.content
+    assert b"Bright Labs" not in response.content
 
 
 def test_search_role(client):
@@ -128,8 +128,8 @@ def test_search_role(client):
     response = client.get("/?search=Python")
 
     assert response.status_code == 200
-    assert b"Python Developer" in response.data
-    assert b"Acme Corp" not in response.data
+    assert b"Python Developer" in response.content
+    assert b"Acme Corp" not in response.content
 
 
 def test_status_filter(client):
@@ -139,15 +139,15 @@ def test_status_filter(client):
     response = client.get("/?status=Interview")
 
     assert response.status_code == 200
-    assert b"Bright Labs" in response.data
-    assert b"Acme Corp" not in response.data
+    assert b"Bright Labs" in response.content
+    assert b"Acme Corp" not in response.content
 
 
 def test_invalid_id_returns_404(client):
     response = client.get("/edit/999999")
 
     assert response.status_code == 404
-    assert b"Page not found" in response.data
+    assert b"Page not found" in response.content
 
 
 def test_validation_rejects_missing_required_fields(client):
@@ -162,9 +162,9 @@ def test_validation_rejects_missing_required_fields(client):
     )
 
     assert response.status_code == 200
-    assert b"Company name is required." in response.data
-    assert b"Job role is required." in response.data
-    assert b"Application date is required." in response.data
+    assert b"Company name is required." in response.content
+    assert b"Job role is required." in response.content
+    assert b"Application date is required." in response.content
     assert count_applications() == 0
 
 
@@ -180,5 +180,5 @@ def test_validation_rejects_invalid_status(client):
     )
 
     assert response.status_code == 200
-    assert b"Please select a valid status." in response.data
+    assert b"Please select a valid status." in response.content
     assert count_applications() == 0
