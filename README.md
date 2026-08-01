@@ -142,7 +142,7 @@ pip install -r requirements.txt
 Run the app:
 
 ```powershell
-python -m uvicorn app:app --reload --port 5000
+python app.py
 ```
 
 Open this URL in the browser:
