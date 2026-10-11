@@ -14,6 +14,20 @@
         </div>
     </nav>
 
+    {% if demo_mode %}
+        <div class="bg-warning-subtle border-bottom border-warning-subtle small py-2" data-testid="demo-banner">
+            <div class="container d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                <span>
+                    <strong>Public demo.</strong> Sample data only. The SQLite file lives on temporary storage,
+                    so records reset to the samples whenever the server restarts.
+                </span>
+                <form method="post" action="{{ url_for('reset_demo') }}">
+                    <button type="submit" class="btn btn-sm btn-outline-dark">Reset demo data</button>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
     <main class="container py-4">
         {% if messages %}
             {% for category, message in messages %}

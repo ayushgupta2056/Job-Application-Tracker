@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -5,17 +6,34 @@ from urllib.parse import quote, urlparse
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+
+BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
-DATABASE = Path(__file__).with_name("jobs.db")
+DATABASE = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "jobs.db"))
 STATUSES = ["Applied", "Interview", "Rejected", "Selected"]
+MESSAGE_CATEGORIES = ["success", "danger"]
+
+# Demo mode is only enabled on the public deployment (see render.yaml).
+DEMO_MODE = os.environ.get("DEMO_MODE") == "1"
+templates.env.globals["demo_mode"] = DEMO_MODE
+
+SAMPLE_APPLICATIONS = [
+    ("Acme Corp", "Backend Developer", "Applied", "2026-09-28", "Remote", "https://example.com/jobs/backend", "Sample record"),
+    ("Bright Labs", "Python Developer", "Interview", "2026-09-30", "Bengaluru", "https://example.com/jobs/python", "Sample record"),
+    ("Cloud Nine", "QA Automation Engineer", "Rejected", "2026-09-15", "Pune", "", "Sample record"),
+    ("DataWorks", "Software Engineer", "Selected", "2026-09-10", "Hyderabad", "https://example.com/jobs/swe", "Sample record"),
+]
 
 
 def get_db_connection():
@@ -41,6 +59,19 @@ def init_db():
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+
+
+def seed_demo_data():
+    with get_db_connection() as connection:
+        if connection.execute("SELECT COUNT(*) FROM applications").fetchone()[0]:
+            return
+        connection.executemany(
+            """
+            INSERT INTO applications (company, role, status, application_date, location, job_link, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            SAMPLE_APPLICATIONS,
         )
 
 
@@ -142,6 +173,8 @@ def index(request: Request, search: str = "", status: str = "", message: str = "
     except sqlite3.DatabaseError:
         raise HTTPException(status_code=500)
 
+    if category not in MESSAGE_CATEGORIES:
+        category = "success"
     messages = [(category, message)] if message else []
 
     return templates.TemplateResponse(
@@ -294,8 +327,19 @@ def delete_job(application_id: int):
     )
 
 
-@app.exception_handler(404)
-def page_not_found(request: Request, exc):
+@app.post("/demo/reset", name="reset_demo")
+def reset_demo():
+    if not DEMO_MODE:
+        raise HTTPException(status_code=404)
+
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM applications")
+    seed_demo_data()
+
+    return redirect_with_message("/", "Demo data was reset to the sample records.")
+
+
+def page_not_found(request: Request):
     return templates.TemplateResponse(
         request,
         "404.html",
@@ -304,8 +348,7 @@ def page_not_found(request: Request, exc):
     )
 
 
-@app.exception_handler(500)
-def internal_server_error(request: Request, exc):
+def internal_server_error(request: Request):
     return templates.TemplateResponse(
         request,
         "500.html",
@@ -314,7 +357,31 @@ def internal_server_error(request: Request, exc):
     )
 
 
+# Raised HTTPExceptions (404 and 500) go through this handler. A handler
+# registered only for 500 is used for unhandled errors, not for HTTPException(500).
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc):
+    if exc.status_code == 404:
+        return page_not_found(request)
+    if exc.status_code == 500:
+        return internal_server_error(request)
+    return await default_http_exception_handler(request, exc)
+
+
+# A non-numeric record ID such as /edit/abc is treated as a missing record.
+@app.exception_handler(RequestValidationError)
+def validation_exception_handler(request: Request, exc):
+    return page_not_found(request)
+
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc):
+    return internal_server_error(request)
+
+
 init_db()
+if DEMO_MODE:
+    seed_demo_data()
 
 
 if __name__ == "__main__":
